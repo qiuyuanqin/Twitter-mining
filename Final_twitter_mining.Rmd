@@ -1,0 +1,332 @@
+---
+title: "Final twitter mining"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r,warning=FALSE,include=FALSE}
+library(devtools)
+library(twitteR)
+library(streamR)
+library(ggplot2) 
+library(grid)
+library(dplyr)
+library(plyr)
+library(data.table)
+library(maps)
+library(knitr)
+library(tm)
+library(wordcloud)
+library(RColorBrewer)
+library(RSentiment)
+install_url('http://cran.r-project.org/src/contrib/Archive/sentiment/sentiment_0.2.tar.gz')
+```
+# Twitter mining  of Taylor Swift 
+# Set up twitter
+```{r}
+#api_key <- 	"GSy0OnHP4gyzzGDmg4z4sBZWJ"
+#api_secret <- "zJmaXWGhADHYjLnTh5tj7xvP2ScxYOMN0cUE1jivpnhrHtOYXZ"
+#access_token <- "777970685280944128-HD4tfrqhv4oT1WkHCNiYu1kJmJ4L33Z"
+#access_token_secret <- "fQEQlk5ySwUZKABmHMARLXlwM2aDoqKZPsQdK3Okx5SS8"
+  
+#setup_twitter_oauth(api_key, api_secret, access_token, access_token_secret)
+
+#library(ROAuth)
+#requestURL <- "https://api.twitter.com/oauth/request_token"
+#accessURL <- "https://api.twitter.com/oauth/access_token"
+#authURL <- "https://api.twitter.com/oauth/authorize"
+#consumerKey <- "GSy0OnHP4gyzzGDmg4z4sBZWJ"
+#consumerSecret <- "zJmaXWGhADHYjLnTh5tj7xvP2ScxYOMN0cUE1jivpnhrHtOYXZ"
+#my_oauth <- OAuthFactory$new(consumerKey = consumerKey, consumerSecret = consumerSecret, requestURL = requestURL, accessURL = accessURL, authURL = authURL)
+#my_oauth$handshake(cainfo = system.file("CurlSSL", "cacert.pem", package = "RCurl"))
+#save(my_oauth, file = "my_oauth.Rdata")
+```
+
+# Text mining and get twitter of Taylor Swift
+```{r,warning=FALSE}
+#1 get data searchtwitter/streamin
+#TS<-searchTwitter("Taylor Swift", n=800, lang="en",since="2016-08-20")
+#TS.df <- twListToDF(TS)
+#write.csv(TS.df,file = "TS.csv")
+TS.df<-read.csv("TS.csv")
+TS_text= sapply(TS.df$text,function(row) iconv(row, "latin1", "ASCII", sub=""))
+```
+
+# clean text
+```{r,warning=FALSE}
+# remove retweet entities
+TS_text = gsub('(RT|via)((?:\\b\\W*@\\w+)+)', '', TS_text)
+# remove at people
+TS_text = gsub('@\\w+', '', TS_text)
+# remove punctuation
+TS_text = gsub('[[:punct:]]', '', TS_text)
+# remove numbers
+TS_text = gsub('[[:digit:]]', '', TS_text)
+# remove html links
+TS_text = gsub('http\\w+', '', TS_text)
+# remove unnecessary spaces
+TS_text = gsub('[ \t]{2,}', '', TS_text)
+TS_text = gsub('^\\s+|\\s+$', '', TS_text)
+
+```
+
+# Analysis text word cloud
+```{r,warning=FALSE}
+
+TS_corpus = Corpus(VectorSource(TS_text))
+#clean the data
+tdm = TermDocumentMatrix(
+  TS_corpus,
+  control = list(
+    stopwords = c("taylor", "swift","instagram","just","now","taylorswift","billboard","swifts","ever","actually","http","can",stopwords("english")),
+    tolower = TRUE))
+m = as.matrix(tdm)
+
+# get word counts in decreasing order
+word_freqs = sort(rowSums(m), decreasing = TRUE) 
+# create a data frame with words and their frequencies
+dm = data.frame(word = names(word_freqs), freq = word_freqs)
+
+wordcloud(dm$word, dm$freq, random.order = FALSE, min.freq=5,colors = brewer.pal(8, "Dark2"))
+
+
+```
+
+
+#sentiment analysis
+###sentiment analysis by hand
+```{r}
+
+library(stringr)
+
+sample1<-sample(TS.df$text,20,replace = FALSE)
+sample1<-data.frame(sample1)
+sample2<-sample(TS.df$text,20,replace = FALSE)
+sample2<-data.frame(sample2)
+sample3<-sample(TS.df$text,20,replace = FALSE)
+sample3<-data.frame(sample3)
+
+# After sample these tweets I can find positive and negative words
+positivew<-c("queen","fans","favorite","love","good","top","best","like","famous")
+negativew<-c("fuck","hate","fucking","negative","hell","shit","damn","sucks","awful")
+
+# sentiment score function
+score.sentiment = function(sentences, pos.words, neg.words, .progress='none')
+{
+    require(plyr)
+    require(stringr)
+     
+    scores = laply(sentences, function(sentence, pos.words, neg.words) {
+         
+        sentence = gsub('[[:punct:]]', '', sentence)
+        sentence = gsub('[[:cntrl:]]', '', sentence)
+        sentence = gsub('\\d+', '', sentence)
+        sentence = tolower(sentence)
+ 
+        word.list = str_split(sentence, '\\s+')
+        words = unlist(word.list)
+ 
+        # compare our words to the dictionaries of positive & negative terms
+        pos.matches = match(words, pos.words)
+        neg.matches = match(words, neg.words)
+     
+        # match() returns the position of the matched term or NA
+        # we just want a TRUE/FALSE:
+        pos.matches = !is.na(pos.matches)
+        neg.matches = !is.na(neg.matches)
+ 
+        score = sum(pos.matches) - sum(neg.matches)
+ 
+        return(score)
+    }, pos.words, neg.words, .progress=.progress )
+ 
+    scores.df = data.frame(score=scores, text=sentences)
+    return(scores.df)
+}
+
+a<-score.sentiment(TS_text,positivew,negativew)
+
+```
+
+#permutation test
+test general attitide toward Taylor swift, in case that result has bias becasue of twitter sampling. The result shows that most difference is around 0, so the result can be considered reliable.
+```{r,warning=FALSE}
+# research sample
+#TS1<-searchTwitter("Taylor Swift", n=800, lang="en",since="2016-08-20")
+#TS1.df <- twListToDF(TS1)
+#write.csv(TS1.df,"TS1.csv")
+TS1.df<-read.csv("TS1.csv")
+TS_text1= sapply(TS1.df$text,function(row) iconv(row, "latin1", "ASCII", sub=""))
+
+b<-score.sentiment(TS_text1,positivew,negativew)
+write.csv("a","a.csv")
+write.csv("b","b.csv")
+test.diff<-mean(a$score)-mean(b$score)
+
+l1<-length(a$score)
+l2<-length(b$score)
+lt<-l1+l2
+
+data <- c(a$score, b$score)
+
+it <- function(n){
+  M = NULL
+  for(i in 1:n){
+    s = sample(data, lt, FALSE)
+    m1 = mean(s[1:l1]) - mean(s[(l1+1):lt])
+    M = c(M,m1)
+  }
+  return(M)
+}
+
+diff <- it(1000)
+diff<-data.frame(diff)
+ggplot(diff,aes(x=diff))+geom_bar(aes(fill=..count..))+scale_fill_continuous(low="lightblue",high="darkblue")+ggtitle("Random Permutations")+xlab("mean difference")
+
+a$score[which(a$score>0)]<-"positive"
+a$score[which(a$score<0)]<-"negative"
+a$score[which(a$score==0)]<-"neutral"
+
+ggplot(a,aes(x=score))+geom_bar(aes(y=..count.., fill=a$score))+
+  theme(plot.title = element_text(size=12, face='bold'))+
+  ggtitle('Sentiment Analysis of Tweets about Taylor Swift')
+
+```
+
+### sentiment analysis by sentiment package
+According to the plot, it seems that most people like Taylor Swift, there are less neutral scores ,probably this package has much more positive words than I do
+```{R}
+class_pol =sentiment::classify_polarity(TS_text, algorithm='bayes')
+polarity = class_pol[,4]
+sent_df = data.frame(text=TS_text,
+polarity=polarity, stringsAsFactors=FALSE)
+
+#plot 
+q<-ggplot(sent_df, aes(x=polarity)) +
+geom_bar(aes(y=..count.., fill=polarity)) +
+scale_fill_brewer(palette='Spectral') +
+labs(x='polarity categories', y='number of tweets') +
+ggtitle('Sentiment Analysis of Tweets about Taylor Swift') +
+theme(plot.title = element_text(size=12, face='bold'))
+q
+
+```
+
+
+# map about twitter user
+This graph shows that  people send tweets in different location, if the tweet is more favorited, the color is darker.
+```{r}
+#twitter user location
+#filterStream("TSS1.json", 
+ #track=c("taylor swift"),
+ #            locations=c(-125,25,-66,50), 
+  #           language = "en",
+  #           timeout=150, oauth=my_oauth)
+#TSS1.df <- parseTweets("TSS1.json", verbose=FALSE)
+#write.csv(TSS1.df,"TSS1.csv")
+TSS1.df<-read.csv("TSS1.csv")
+
+TSpoints<-data.frame(x=as.numeric(TSS1.df$lon),y=as.numeric(TSS1.df$lat),z=as.numeric(TSS1.df$favourites_count))
+TSpoints<-na.omit(TSpoints)
+
+map.data <- map_data("state")
+TSpoints <- TSpoints[TSpoints$y>25,]
+TSpoints$z<-TSpoints$z+1
+summary(TSpoints)
+names(TSpoints)<-c("x","y","favoriated.number")
+ggplot(map.data)+
+  geom_map(aes(map_id=region),
+           map=map.data,
+           fill="white", 
+           color="grey20",size=0.25)+
+  expand_limits(x=map.data$long,y=map.data$lat)+ geom_jitter(data=TSpoints, 
+                                                            aes(x=x,y=y,fill=log(TSpoints$favoriated.number)),size=3,shape=21,color="white")+scale_fill_continuous(low = "lightblue", high = "darkblue", guide="colorbar")+ggtitle("geolocated twitter with favorited number")
+
+                                                                      #color=ifelse(TSpoints$z>0,TSpoints$z[which(TSpoints$z>0)],"grey"))
+
+```
+
+#Sentiment analysis in different state
+After calculating the number of twitter in each state, I Plot state map, in each picture, darker the  color is , larger the number or the proportion is 
+```{r}
+#clean twitter
+TSmap<-TSS1.df %>% filter(country=="United States"&place_type=="city")
+# get state name
+substrRight <- function(x, n){
+  substr(x, nchar(x)-n+1, nchar(x))
+}
+TSmap$full_name<-as.character(TSmap$full_name)
+TSmap$full_name<-substrRight(TSmap$full_name,2)
+TS.n<-tally(group_by(TSmap,full_name))
+
+TS_text1= sapply(TSmap$text,function(row) iconv(row, "latin1", "ASCII", sub=""))
+
+#sentiment analysis
+SA=sentiment::classify_polarity(TS_text1, algorithm='bayes')
+SA<-data.frame(SA)
+polarityS= SA[,4]
+TSmapS<-cbind(TSmap,polarityS)
+#Calculate positive, negative, and neutral number of tweets in different state
+#Positive number
+stateP<-TSmapS%>% filter(TSmapS$polarityS=="positive")
+stateP<-tally(group_by(stateP,full_name))
+#Negative number
+stateN<-TSmapS%>% filter(TSmapS$polarityS=="negative")
+stateN<-tally(group_by(stateN,full_name))
+#Neutral number
+stateO<-TSmapS%>% filter(TSmapS$polarityS=="neutral")
+stateO<-tally(group_by(stateO,full_name))
+
+TS.n<-tally(group_by(TSmap,full_name))
+TS.n<-join(TS.n,stateO,by="full_name")
+TS.n<-join(TS.n,stateN,by="full_name")
+TS.n<-join(TS.n,stateP,by="full_name")
+names(TS.n)<-c("region","total.num","neu.num","neg.num","pos.num")
+TS.n[which(TS.n==NA),]<-0
+
+# get full state name
+TS.n$region<-state.name[match(TS.n$region, state.abb)]
+TS.n$region<-tolower(TS.n$region)
+
+
+allstate=map_data("state")
+allstate<-join(allstate,TS.n,by="region")
+
+allstate$pos.prop<-allstate$pos.num/allstate$total.num
+allstate$neu.prop<-allstate$neu.num/allstate$total.num
+allstate$neg.prop<-allstate$neg.num/allstate$total.num
+
+allstate[which(allstate$.==NA),]<-0
+
+write.csv(allstate,"allstate.csv")
+```
+
+Total number of Twitter plot
+```{r}
+# plot maps
+p <- ggplot()
+p <- p + geom_polygon(data=allstate, aes(x=long, y=lat, group = group, fill=allstate$total.num),colour="white")+ scale_fill_continuous(low = "thistle2", high = "darkred", guide="colorbar")+ggtitle("number of twitter in different states")
+p
+```
+
+positive proportion of Twitter plot
+```{r}
+pos<- ggplot()
+pos <- pos + geom_polygon(data=allstate, aes(x=long, y=lat, group = group, fill=allstate$pos.prop),colour="white")+ scale_fill_continuous(low = "yellow", high = "brown", guide="colorbar")+ggtitle("proportion of positive twitter in different states")
+pos
+```
+
+negative proportion of Twitter plot
+```{r}
+
+neg<- ggplot()
+neg<- neg + geom_polygon(data=allstate, aes(x=long, y=lat, group = group, fill=allstate$neg.prop),colour="white")+ scale_fill_continuous(low = "lightgreen", high = "darkgreen", guide="colorbar")+ggtitle("proportion of negative twitter in different states")
+neg
+
+
+```
+
